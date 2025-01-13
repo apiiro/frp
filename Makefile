@@ -40,7 +40,7 @@ frpc:
 frpc-dockerfile:
 	@echo "Tag $(AGENT_TAG)"
 
-	docker buildx build --platform linux/amd64 \
+	docker buildx build --platform linux/amd64,linux/arm64 \
   		--push --pull \
   		-t us-docker.pkg.dev/$(DOCKER_BASE)/frpc:latest \
   		-t us-docker.pkg.dev/$(DOCKER_BASE)/frpc:$(AGENT_TAG) \
