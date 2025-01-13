@@ -38,10 +38,11 @@ func ValidateClientPluginOptions(c v1.ClientPluginOptions) error {
 	return nil
 }
 
-func validateHTTP2HTTPSPluginOptions(c *v1.HTTP2HTTPSPluginOptions) error {
-	if c.LocalAddr == "" {
-		return errors.New("localAddr is required")
-	}
+func validateHTTP2HTTPSPluginOptions(_c *v1.HTTP2HTTPSPluginOptions) error {
+	// yoels - allow no localAddr override
+	// if c.LocalAddr == "" {
+	// 	return errors.New("localAddr is required")
+	// }
 	return nil
 }
 
