@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -176,10 +177,18 @@ func (c *defaultConnectorImpl) realConnect() (net.Conn, error) {
 	}
 	dialOptions := []libnet.DialOption{}
 	protocol := c.cfg.Transport.Protocol
+
+	// read authentication from AUTH environment variable
+	wsAuth := os.Getenv("WS_AUTH")
+	// add Bearer prefix if needed, and wsAuth is not empty or null
+	if wsAuth != "" && !strings.HasPrefix(wsAuth, "Bearer ") {
+		wsAuth = "Bearer " + wsAuth
+	}
+
 	switch protocol {
 	case "websocket":
 		protocol = "tcp"
-		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{Hook: netpkg.DialHookWebsocket(protocol, "")}))
+		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{Hook: netpkg.DialHookWebsocket(protocol, "", wsAuth)}))
 		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{
 			Hook: netpkg.DialHookCustomTLSHeadByte(tlsConfig != nil, lo.FromPtr(c.cfg.Transport.TLS.DisableCustomTLSFirstByte)),
 		}))
@@ -188,7 +197,7 @@ func (c *defaultConnectorImpl) realConnect() (net.Conn, error) {
 		protocol = "tcp"
 		dialOptions = append(dialOptions, libnet.WithTLSConfigAndPriority(100, tlsConfig))
 		// Make sure that if it is wss, the websocket hook is executed after the tls hook.
-		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{Hook: netpkg.DialHookWebsocket(protocol, tlsConfig.ServerName), Priority: 110}))
+		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{Hook: netpkg.DialHookWebsocket(protocol, tlsConfig.ServerName, wsAuth), Priority: 110}))
 	default:
 		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{
 			Hook: netpkg.DialHookCustomTLSHeadByte(tlsConfig != nil, lo.FromPtr(c.cfg.Transport.TLS.DisableCustomTLSFirstByte)),
