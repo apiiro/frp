@@ -100,7 +100,7 @@ func NewServerTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
 	return base, nil
 }
 
-func NewClientTLSConfig(certPath, keyPath, caPath, serverName string) (*tls.Config, error) {
+func NewClientTLSConfig(certPath, keyPath, caPath, serverName string, skipVerify bool) (*tls.Config, error) {
 	base := &tls.Config{}
 
 	if certPath != "" && keyPath != "" {
@@ -122,9 +122,11 @@ func NewClientTLSConfig(certPath, keyPath, caPath, serverName string) (*tls.Conf
 
 		base.RootCAs = pool
 		base.InsecureSkipVerify = false
-	} else {
+	} else if skipVerify {
 		base.InsecureSkipVerify = true
 	}
+	// When no CA path is provided and skipVerify is false, we'll use the system's default CA store
+	// by not setting RootCAs, which will make Go use the system's default CA store
 
 	return base, nil
 }
