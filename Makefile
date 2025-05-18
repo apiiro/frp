@@ -3,7 +3,7 @@ export GO111MODULE=on
 LDFLAGS := -s -w
 VERSION := $(shell git tag --sort=creatordate | grep -E '[0-9]' | tail -1)
 DOCKER_BASE := apiiro/public-images/network-broker
-AGENT_TAG := $(shell echo ${VERSION} | grep -o '^v[0-9.]*')
+AGENT_TAG := $(VERSION)
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 
