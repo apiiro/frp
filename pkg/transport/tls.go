@@ -125,8 +125,6 @@ func NewClientTLSConfig(certPath, keyPath, caPath, serverName string, skipVerify
 	} else if skipVerify {
 		base.InsecureSkipVerify = true
 	}
-	// When no CA path is provided and skipVerify is false, we'll use the system's default CA store
-	// by not setting RootCAs, which will make Go use the system's default CA store
 
 	return base, nil
 }
