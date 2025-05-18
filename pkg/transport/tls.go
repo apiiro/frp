@@ -100,7 +100,7 @@ func NewServerTLSConfig(certPath, keyPath, caPath string) (*tls.Config, error) {
 	return base, nil
 }
 
-func NewClientTLSConfig(certPath, keyPath, caPath, serverName string) (*tls.Config, error) {
+func NewClientTLSConfig(certPath, keyPath, caPath, serverName string, skipVerify bool) (*tls.Config, error) {
 	base := &tls.Config{}
 
 	if certPath != "" && keyPath != "" {
@@ -122,7 +122,7 @@ func NewClientTLSConfig(certPath, keyPath, caPath, serverName string) (*tls.Conf
 
 		base.RootCAs = pool
 		base.InsecureSkipVerify = false
-	} else {
+	} else if skipVerify {
 		base.InsecureSkipVerify = true
 	}
 
