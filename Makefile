@@ -4,6 +4,8 @@ LDFLAGS := -s -w
 VERSION := $(shell git tag --sort=creatordate | grep -E '[0-9]' | tail -1)
 DOCKER_BASE := apiiro/public-images/network-broker
 AGENT_TAG := $(shell echo ${VERSION} | grep -o '^v[0-9.]*')
+GOOS ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
 
 all: env fmt build
 
@@ -35,7 +37,7 @@ frps:
 	env CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -tags frps -o bin/frps ./cmd/frps
 
 frpc:
-	env CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -tags frpc -o bin/frpc ./cmd/frpc
+	env CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags "$(LDFLAGS)" -tags frpc -o bin/frpc ./cmd/frpc
 
 frpc-dockerfile:
 	@echo "Tag $(AGENT_TAG)"

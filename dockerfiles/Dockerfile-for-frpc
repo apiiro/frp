@@ -1,9 +1,12 @@
-FROM golang:1.23 AS building
+FROM --platform=$BUILDPLATFORM golang:1.23 AS building
+
+ARG TARGETOS
+ARG TARGETARCH
 
 COPY . /building
 WORKDIR /building
 
-RUN make frpc
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH make frpc
 
 FROM alpine:3
 

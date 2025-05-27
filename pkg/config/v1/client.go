@@ -163,6 +163,10 @@ type TLSClientConfig struct {
 	// first custom byte when tls is enabled.
 	// Since v0.50.0, the default value has been changed to true, and the first custom byte is disabled by default.
 	DisableCustomTLSFirstByte *bool `json:"disableCustomTLSFirstByte,omitempty"`
+	// SkipVerify controls whether a client verifies the server's certificate chain and host name.
+	// If SkipVerify is true, TLS accepts any certificate presented by the server and any host name in that certificate.
+	// In this mode, TLS is susceptible to man-in-the-middle attacks.
+	SkipVerify *bool `json:"skipVerify,omitempty"`
 
 	TLSConfig
 }
@@ -170,6 +174,7 @@ type TLSClientConfig struct {
 func (c *TLSClientConfig) Complete() {
 	c.Enable = util.EmptyOr(c.Enable, lo.ToPtr(true))
 	c.DisableCustomTLSFirstByte = util.EmptyOr(c.DisableCustomTLSFirstByte, lo.ToPtr(true))
+	c.SkipVerify = util.EmptyOr(c.SkipVerify, lo.ToPtr(false))
 }
 
 type AuthClientConfig struct {

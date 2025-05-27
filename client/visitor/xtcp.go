@@ -412,7 +412,7 @@ func NewQUICTunnelSession(clientCfg *v1.ClientCommonConfig) TunnelSession {
 }
 
 func (qs *QUICTunnelSession) Init(listenConn *net.UDPConn, raddr *net.UDPAddr) error {
-	tlsConfig, err := transport.NewClientTLSConfig("", "", "", raddr.String())
+	tlsConfig, err := transport.NewClientTLSConfig("", "", "", raddr.String(), true)
 	if err != nil {
 		return fmt.Errorf("create tls config error: %v", err)
 	}
