@@ -62,7 +62,10 @@ func NewHTTP2HTTPSPlugin(_ PluginContext, options v1.ClientPluginOptions) (Plugi
 			r.Out.Header["X-Forwarded-Proto"] = r.In.Header["X-Forwarded-Proto"]
 			req := r.Out
 			req.URL.Scheme = "https"
-			req.URL.Host = p.opts.LocalAddr
+			// yoels - override host only if override is defined
+			if p.opts.LocalAddr != "" {
+				req.URL.Host = p.opts.LocalAddr
+			}
 			if p.opts.HostHeaderRewrite != "" {
 				req.Host = p.opts.HostHeaderRewrite
 			}
