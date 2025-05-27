@@ -1,6 +1,9 @@
 export PATH := $(PATH):`go env GOPATH`/bin
 export GO111MODULE=on
 LDFLAGS := -s -w
+VERSION := $(shell git tag --sort=creatordate | grep -E '[0-9]' | tail -1)
+DOCKER_BASE := apiiro/public-images/network-broker
+AGENT_TAG := $(shell echo ${VERSION} | grep -o '^v[0-9.]*')
 
 all: env fmt build
 
@@ -33,6 +36,16 @@ frps:
 
 frpc:
 	env CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -tags frpc -o bin/frpc ./cmd/frpc
+
+frpc-dockerfile:
+	@echo "Tag $(AGENT_TAG)"
+
+	docker buildx build --platform linux/amd64,linux/arm64 \
+  		--push --pull \
+  		-t us-docker.pkg.dev/$(DOCKER_BASE)/frpc:latest \
+  		-t us-docker.pkg.dev/$(DOCKER_BASE)/frpc:$(AGENT_TAG) \
+  		-f dockerfiles/Dockerfile-for-frpc \
+  		.
 
 test: gotest
 

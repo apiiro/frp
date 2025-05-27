@@ -21,7 +21,7 @@ func DialHookCustomTLSHeadByte(enableTLS bool, disableCustomTLSHeadByte bool) li
 	}
 }
 
-func DialHookWebsocket(protocol string, host string) libnet.AfterHookFunc {
+func DialHookWebsocket(protocol string, host string, auth string) libnet.AfterHookFunc {
 	return func(ctx context.Context, c net.Conn, addr string) (context.Context, net.Conn, error) {
 		if protocol != "wss" {
 			protocol = "ws"
@@ -39,6 +39,10 @@ func DialHookWebsocket(protocol string, host string) libnet.AfterHookFunc {
 		cfg, err := websocket.NewConfig(addr, origin)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		if auth != "" {
+			cfg.Header.Add("Authorization", auth)
 		}
 
 		conn, err := websocket.NewClient(cfg, c)
