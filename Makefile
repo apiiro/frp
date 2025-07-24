@@ -49,6 +49,16 @@ frpc-dockerfile:
   		-f dockerfiles/Dockerfile-for-frpc \
   		.
 
+frps-dockerfile:
+	@echo "Tag $(AGENT_TAG)"
+
+	docker buildx build --platform linux/amd64,linux/arm64 \
+  		--push --pull \
+  		-t us-docker.pkg.dev/$(DOCKER_BASE)/frps:latest \
+  		-t us-docker.pkg.dev/$(DOCKER_BASE)/frps:$(AGENT_TAG) \
+  		-f dockerfiles/Dockerfile-for-frps \
+  		.
+
 test: gotest
 
 gotest:
