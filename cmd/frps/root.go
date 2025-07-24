@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -115,6 +117,26 @@ func runServer(cfg *v1.ServerConfig) (err error) {
 		return err
 	}
 	log.Infof("frps started successfully")
+
+	// Set config file path for hot reload if available
+	if cfgFile != "" {
+		svr.SetConfigFilePath(cfgFile)
+	}
+
+	// Set up signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGUSR1)
+
+	go func() {
+		for {
+			sig := <-sigChan
+			if sig == syscall.SIGUSR1 {
+				log.Infof("Received SIGUSR1 signal for auth token reload")
+				svr.TriggerReload()
+			}
+		}
+	}()
+
 	svr.Run(context.Background())
 	return
 }

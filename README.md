@@ -103,6 +103,7 @@ frp also offers a P2P connect mode.
     * [Encryption and Compression](#encryption-and-compression)
         * [TLS](#tls)
     * [Hot-Reloading frpc configuration](#hot-reloading-frpc-configuration)
+    * [Hot-Reloading frps authentication](#hot-reloading-frps-authentication)
     * [Get proxy status from client](#get-proxy-status-from-client)
     * [Only allowing certain ports on the server](#only-allowing-certain-ports-on-the-server)
     * [Port Reuse](#port-reuse)
@@ -816,6 +817,71 @@ Then run command `frpc reload -c ./frpc.toml` and wait for about 10 seconds to l
 **Note that global client parameters won't be modified except 'start'.**
 
 You can run command `frpc verify -c ./frpc.toml` before reloading to check if there are config errors.
+
+### Hot-Reloading frps authentication
+
+frps supports hot-reloading authentication tokens without restarting the server process. This allows you to update authentication credentials without disrupting existing client connections.
+
+**Requirements:**
+- Only token-based authentication can be hot-reloaded
+- The authentication method (token vs OIDC) cannot be changed during hot reload
+- A config file path must be provided when starting frps
+
+**Setup:**
+
+Start frps with a config file:
+
+```bash
+./frps -c ./frps.toml
+```
+
+**Usage:**
+
+1. Update the authentication token in your `frps.toml` config file:
+
+```toml
+# frps.toml
+auth.method = "token"
+auth.token = "your_new_token_here"
+```
+
+2. Send SIGUSR1 signal to the running frps process to trigger hot reload:
+
+```bash
+# Option 1: Use the built-in reload command (recommended)
+./frps reload
+
+# Option 2: Send signal manually
+# Find the frps process ID
+ps aux | grep frps
+
+# Send reload signal (replace <PID> with actual process ID)
+kill -USR1 <PID>
+```
+
+**Verification:**
+
+Check the frps logs to confirm successful reload:
+
+```
+[I] [server/service.go:xxx] Received reload signal, reloading auth config...
+[I] [server/service.go:xxx] Successfully reloaded auth config - token updated
+```
+
+**Error Handling:**
+
+- If reload fails, frps continues operating with the previous authentication settings
+- Common failure reasons:
+  - Config file not found or unreadable
+  - Invalid config syntax
+  - Attempting to change authentication method (not supported)
+  - Missing required auth fields
+
+**Limitations:**
+
+- Only authentication token updates are supported
+- Cannot change from token to OIDC authentication (or vice versa) during hot reload
+- Other server configuration changes are not supported and require a restart
 
 ### Get proxy status from client
 
