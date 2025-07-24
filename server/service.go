@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fatedier/golib/crypto"
@@ -33,6 +35,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/fatedier/frp/pkg/auth"
+	"github.com/fatedier/frp/pkg/config"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	modelmetrics "github.com/fatedier/frp/pkg/metrics"
 	"github.com/fatedier/frp/pkg/msg"
@@ -115,11 +118,16 @@ type Service struct {
 	sshTunnelGateway *ssh.Gateway
 
 	// Verifies authentication based on selected method
-	authVerifier auth.Verifier
+	authVerifier atomic.Value // stores auth.Verifier for atomic access
 
 	tlsConfig *tls.Config
 
 	cfg *v1.ServerConfig
+
+	// Hot reload support
+	configFilePath string
+	reloadChan     chan struct{}
+	reloadMutex    sync.RWMutex
 
 	// service context
 	ctx context.Context
@@ -161,12 +169,16 @@ func NewService(cfg *v1.ServerConfig) (*Service, error) {
 		},
 		sshTunnelListener: netpkg.NewInternalListener(),
 		httpVhostRouter:   vhost.NewRouters(),
-		authVerifier:      auth.NewAuthVerifier(cfg.Auth),
 		webServer:         webServer,
 		tlsConfig:         tlsConfig,
 		cfg:               cfg,
+		reloadChan:        make(chan struct{}, 1),
 		ctx:               context.Background(),
 	}
+
+	// Initialize atomic auth verifier
+	svr.authVerifier.Store(auth.NewAuthVerifier(cfg.Auth))
+
 	if webServer != nil {
 		webServer.RouteRegister(svr.registerRouteHandlers)
 	}
@@ -373,6 +385,9 @@ func (svr *Service) Run(ctx context.Context) {
 	if svr.sshTunnelGateway != nil {
 		go svr.sshTunnelGateway.Run()
 	}
+
+	// Start reload signal handler
+	go svr.handleReloadSignals()
 
 	svr.HandleListener(svr.listener, false)
 
@@ -583,7 +598,7 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 		ctlConn.RemoteAddr().String(), loginMsg.Version, loginMsg.Hostname, loginMsg.Os, loginMsg.Arch)
 
 	// Check auth.
-	authVerifier := svr.authVerifier
+	authVerifier := svr.GetAuthVerifier()
 	if internal && loginMsg.ClientSpec.AlwaysAuthPass {
 		authVerifier = auth.AlwaysPassVerifier
 	}
@@ -592,7 +607,7 @@ func (svr *Service) RegisterControl(ctlConn net.Conn, loginMsg *msg.Login, inter
 	}
 
 	// TODO(fatedier): use SessionContext
-	ctl, err := NewControl(ctx, svr.rc, svr.pxyManager, svr.pluginManager, authVerifier, ctlConn, !internal, loginMsg, svr.cfg)
+	ctl, err := NewControl(ctx, svr.rc, svr.pxyManager, svr.pluginManager, svr, ctlConn, !internal, loginMsg, svr.cfg)
 	if err != nil {
 		xl.Warnf("create new controller error: %v", err)
 		// don't return detailed errors to client
@@ -636,7 +651,7 @@ func (svr *Service) RegisterWorkConn(workConn net.Conn, newMsg *msg.NewWorkConn)
 	if err == nil {
 		newMsg = &retContent.NewWorkConn
 		// Check auth.
-		err = ctl.authVerifier.VerifyNewWorkConn(newMsg)
+		err = ctl.GetAuthVerifier().VerifyNewWorkConn(newMsg)
 	}
 	if err != nil {
 		xl.Warnf("invalid NewWorkConn with run id [%s]", newMsg.RunID)
@@ -661,4 +676,90 @@ func (svr *Service) RegisterVisitorConn(visitorConn net.Conn, newMsg *msg.NewVis
 	}
 	return svr.rc.VisitorManager.NewConn(newMsg.ProxyName, visitorConn, newMsg.Timestamp, newMsg.SignKey,
 		newMsg.UseEncryption, newMsg.UseCompression, visitorUser)
+}
+
+// GetAuthVerifier returns the current auth verifier safely
+func (svr *Service) GetAuthVerifier() auth.Verifier {
+	return svr.authVerifier.Load().(auth.Verifier)
+}
+
+// SetConfigFilePath sets the config file path for hot reloading
+func (svr *Service) SetConfigFilePath(path string) {
+	svr.reloadMutex.Lock()
+	defer svr.reloadMutex.Unlock()
+	svr.configFilePath = path
+}
+
+// TriggerReload signals the service to reload auth configuration
+func (svr *Service) TriggerReload() {
+	select {
+	case svr.reloadChan <- struct{}{}:
+		log.Infof("Auth reload signal queued")
+	default:
+		log.Warnf("Auth reload already pending, skipping duplicate signal")
+	}
+}
+
+// reloadAuthConfig reloads the auth configuration from the config file
+func (svr *Service) reloadAuthConfig() error {
+	svr.reloadMutex.RLock()
+	configPath := svr.configFilePath
+	svr.reloadMutex.RUnlock()
+
+	if configPath == "" {
+		return fmt.Errorf("no config file path set for hot reload")
+	}
+
+	log.Infof("Reloading auth config from: %s", configPath)
+
+	// Load new configuration
+	newCfg, _, err := config.LoadServerConfig(configPath, true)
+	if err != nil {
+		return fmt.Errorf("failed to load server config: %v", err)
+	}
+
+	// Validate that only auth-related config has changed
+	oldAuthMethod := svr.cfg.Auth.Method
+	newAuthMethod := newCfg.Auth.Method
+
+	if oldAuthMethod != newAuthMethod {
+		return fmt.Errorf("auth method change not allowed during hot reload (old: %s, new: %s)",
+			oldAuthMethod, newAuthMethod)
+	}
+
+	// For token auth, check if token actually changed
+	if newAuthMethod == v1.AuthMethodToken {
+		if svr.cfg.Auth.Token == newCfg.Auth.Token {
+			log.Infof("Auth token unchanged, no reload needed")
+			return nil
+		}
+		log.Infof("Auth token changed, updating verifier")
+	}
+
+	// Create new auth verifier
+	newAuthVerifier := auth.NewAuthVerifier(newCfg.Auth)
+
+	// Atomically replace the auth verifier
+	svr.authVerifier.Store(newAuthVerifier)
+
+	// Update the config auth section
+	svr.cfg.Auth = newCfg.Auth
+
+	log.Infof("Auth configuration reloaded successfully")
+	return nil
+}
+
+// handleReloadSignals runs in a goroutine to handle reload signals
+func (svr *Service) handleReloadSignals() {
+	for {
+		select {
+		case <-svr.reloadChan:
+			if err := svr.reloadAuthConfig(); err != nil {
+				log.Errorf("Failed to reload auth config: %v", err)
+			}
+		case <-svr.ctx.Done():
+			log.Infof("Stopping auth reload signal handler")
+			return
+		}
+	}
 }

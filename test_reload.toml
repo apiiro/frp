@@ -1,0 +1,12 @@
+bindAddr = "0.0.0.0"
+bindPort = 17000
+proxyBindAddr = "0.0.0.0"
+vhostHTTPPort = 18080
+vhostHTTPSPort = 18443
+
+[auth]
+method = "token"
+token = "final_test_token"
+
+[log]
+level = "info" 

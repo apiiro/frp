@@ -104,8 +104,8 @@ type Control struct {
 	// plugin manager
 	pluginManager *plugin.Manager
 
-	// verifies authentication based on selected method
-	authVerifier auth.Verifier
+	// service reference for accessing current auth verifier
+	service *Service
 
 	// other components can use this to communicate with client
 	msgTransporter transport.MessageTransporter
@@ -156,7 +156,7 @@ func NewControl(
 	rc *controller.ResourceController,
 	pxyManager *proxy.Manager,
 	pluginManager *plugin.Manager,
-	authVerifier auth.Verifier,
+	service *Service,
 	ctlConn net.Conn,
 	ctlConnEncrypted bool,
 	loginMsg *msg.Login,
@@ -170,7 +170,7 @@ func NewControl(
 		rc:            rc,
 		pxyManager:    pxyManager,
 		pluginManager: pluginManager,
-		authVerifier:  authVerifier,
+		service:       service,
 		conn:          ctlConn,
 		loginMsg:      loginMsg,
 		workConnCh:    make(chan net.Conn, poolCount+10),
@@ -197,6 +197,11 @@ func NewControl(
 	ctl.registerMsgHandlers()
 	ctl.msgTransporter = transport.NewMessageTransporter(ctl.msgDispatcher.SendChannel())
 	return ctl, nil
+}
+
+// GetAuthVerifier returns the current auth verifier from the service
+func (ctl *Control) GetAuthVerifier() auth.Verifier {
+	return ctl.service.GetAuthVerifier()
 }
 
 // Start send a login success message to client and start working.
@@ -417,7 +422,7 @@ func (ctl *Control) handlePing(m msg.Message) {
 	retContent, err := ctl.pluginManager.Ping(content)
 	if err == nil {
 		inMsg = &retContent.Ping
-		err = ctl.authVerifier.VerifyPing(inMsg)
+		err = ctl.GetAuthVerifier().VerifyPing(inMsg)
 	}
 	if err != nil {
 		xl.Warnf("received invalid ping: %v", err)
