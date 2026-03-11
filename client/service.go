@@ -31,6 +31,7 @@ import (
 	"github.com/fatedier/frp/pkg/auth"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/msg"
+	"github.com/fatedier/frp/pkg/policy/security"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
 	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
@@ -64,7 +65,7 @@ type ServiceOptions struct {
 	ProxyCfgs   []v1.ProxyConfigurer
 	VisitorCfgs []v1.VisitorConfigurer
 
-	UnsafeFeatures v1.UnsafeFeatures
+	UnsafeFeatures *security.UnsafeFeatures
 
 	// ConfigFilePath is the path to the configuration file used to initialize.
 	// If it is empty, it means that the configuration file is not used for initialization.
@@ -110,8 +111,8 @@ type Service struct {
 	// Uniq id got from frps, it will be attached to loginMsg.
 	runID string
 
-	// Sets authentication based on selected method
-	authSetter auth.Setter
+	// Auth runtime and encryption materials
+	auth *auth.ClientAuth
 
 	// web server for admin UI and apis
 	webServer *httppkg.Server
@@ -124,7 +125,7 @@ type Service struct {
 	visitorCfgs []v1.VisitorConfigurer
 	clientSpec  *msg.ClientSpec
 
-	unsafeFeatures v1.UnsafeFeatures
+	unsafeFeatures *security.UnsafeFeatures
 
 	// The configuration file used to initialize this client, or an empty
 	// string if no configuration file was used.
@@ -154,14 +155,14 @@ func NewService(options ServiceOptions) (*Service, error) {
 		webServer = ws
 	}
 
-	authSetter, err := auth.NewAuthSetter(options.Common.Auth)
+	authRuntime, err := auth.BuildClientAuth(&options.Common.Auth)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Service{
 		ctx:              context.Background(),
-		authSetter:       authSetter,
+		auth:             authRuntime,
 		webServer:        webServer,
 		common:           options.Common,
 		configFilePath:   options.ConfigFilePath,
@@ -280,11 +281,15 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 		return
 	}
 
+	hostname, _ := os.Hostname()
+
 	loginMsg := &msg.Login{
 		Arch:      runtime.GOARCH,
 		Os:        runtime.GOOS,
+		Hostname:  hostname,
 		PoolCount: svr.common.Transport.PoolCount,
 		User:      svr.common.User,
+		ClientID:  svr.common.ClientID,
 		Version:   version.Full(),
 		Timestamp: time.Now().Unix(),
 		RunID:     svr.runID,
@@ -295,7 +300,7 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 	}
 
 	// Add auth
-	if err = svr.authSetter.SetLogin(loginMsg); err != nil {
+	if err = svr.auth.Setter.SetLogin(loginMsg); err != nil {
 		return
 	}
 
@@ -349,7 +354,7 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 			RunID:          svr.runID,
 			Conn:           conn,
 			ConnEncrypted:  connEncrypted,
-			AuthSetter:     svr.authSetter,
+			Auth:           svr.auth,
 			Connector:      connector,
 			VnetController: svr.vnetController,
 		}
