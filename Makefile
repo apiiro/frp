@@ -1,7 +1,7 @@
 export PATH := $(PATH):`go env GOPATH`/bin
 export GO111MODULE=on
 LDFLAGS := -s -w
-VERSION := $(shell git tag --sort=creatordate | grep -E '[0-9]' | tail -1)
+VERSION := $(shell git describe --tags --exact-match HEAD 2>/dev/null)
 DOCKER_BASE := apiiro/public-images/network-broker
 AGENT_TAG := $(VERSION)
 GOOS ?= $(shell go env GOOS)
@@ -43,6 +43,7 @@ frpc:
 	env CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags "$(LDFLAGS)" -tags frpc -o bin/frpc ./cmd/frpc
 
 frpc-dockerfile:
+	@test -n "$(AGENT_TAG)" || { echo "HEAD has no release tag"; exit 1; }
 	@echo "Tag $(AGENT_TAG)"
 
 	docker buildx build --platform linux/amd64,linux/arm64 \
@@ -53,6 +54,7 @@ frpc-dockerfile:
   		.
 
 frps-dockerfile:
+	@test -n "$(AGENT_TAG)" || { echo "HEAD has no release tag"; exit 1; }
 	@echo "Tag $(AGENT_TAG)"
 
 	docker buildx build --platform linux/amd64,linux/arm64 \
