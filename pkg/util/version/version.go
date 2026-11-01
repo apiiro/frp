@@ -14,7 +14,7 @@
 
 package version
 
-var version = "0.67.0-apiiro-3"
+var version = "0.67.0-apiiro-4"
 
 func Full() string {
 	return version
