@@ -17,6 +17,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"runtime/debug"
 	"sync"
@@ -155,6 +156,8 @@ type Control struct {
 	doneCh chan struct{}
 }
 
+const workConnPoolCapacityOffset = 10
+
 // TODO(fatedier): Referencing the implementation of frpc, encapsulate the input parameters as SessionContext.
 func NewControl(
 	ctx context.Context,
@@ -168,10 +171,21 @@ func NewControl(
 	loginMsg *msg.Login,
 	serverCfg *v1.ServerConfig,
 ) (*Control, error) {
-	poolCount := loginMsg.PoolCount
-	if poolCount > int(serverCfg.Transport.MaxPoolCount) {
-		poolCount = int(serverCfg.Transport.MaxPoolCount)
+	if loginMsg.PoolCount < 0 {
+		return nil, fmt.Errorf("invalid pool count %d, must be non-negative", loginMsg.PoolCount)
 	}
+	if serverCfg.Transport.MaxPoolCount < 0 {
+		return nil, fmt.Errorf("invalid max pool count %d, must be non-negative", serverCfg.Transport.MaxPoolCount)
+	}
+	effectivePoolCount := min(int64(loginMsg.PoolCount), serverCfg.Transport.MaxPoolCount)
+	maxPoolCountForChannel := int64(math.MaxInt) - int64(workConnPoolCapacityOffset)
+	if effectivePoolCount > maxPoolCountForChannel {
+		return nil, fmt.Errorf(
+			"invalid effective pool count %d, cannot safely add %d for work connection pool capacity",
+			effectivePoolCount, workConnPoolCapacityOffset,
+		)
+	}
+	poolCount := int(effectivePoolCount)
 	ctl := &Control{
 		rc:            rc,
 		pxyManager:    pxyManager,
@@ -180,7 +194,7 @@ func NewControl(
 		encryptionKey: encryptionKey,
 		conn:          ctlConn,
 		loginMsg:      loginMsg,
-		workConnCh:    make(chan net.Conn, poolCount+10),
+		workConnCh:    make(chan net.Conn, poolCount+workConnPoolCapacityOffset),
 		proxies:       make(map[string]proxy.Proxy),
 		poolCount:     poolCount,
 		portsUsedNum:  0,
