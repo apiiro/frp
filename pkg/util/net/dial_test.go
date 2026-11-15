@@ -19,7 +19,10 @@ func TestDialHookWebsocketCloseWithStalledWrite(t *testing.T) {
 	require.NoError(err)
 	release := make(chan struct{})
 	defer close(release)
-	server := &http.Server{Handler: websocket.Handler(func(*websocket.Conn) { <-release })}
+	server := &http.Server{
+		Handler:           websocket.Handler(func(*websocket.Conn) { <-release }),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func() { _ = server.Serve(ln) }()
 	defer server.Close()
 
