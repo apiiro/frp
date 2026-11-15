@@ -33,12 +33,14 @@ func TestDialHookWebsocketCloseWithStalledWrite(t *testing.T) {
 	require.NoError(err)
 
 	var written atomic.Int64
+	writeErr := make(chan error, 1)
 	go func() {
 		buf := make([]byte, 64*1024)
 		for {
 			n, err := conn.Write(buf)
 			written.Add(int64(n))
 			if err != nil {
+				writeErr <- err
 				return
 			}
 		}
@@ -49,6 +51,11 @@ func TestDialHookWebsocketCloseWithStalledWrite(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		return before > 0 && written.Load() == before
 	}, 10*time.Second, 10*time.Millisecond, "write never stalled")
+	select {
+	case err := <-writeErr:
+		t.Fatalf("writer exited instead of stalling: %v", err)
+	default:
+	}
 
 	closed := make(chan struct{})
 	go func() {
