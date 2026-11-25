@@ -74,6 +74,8 @@ type BaseProxy struct {
 	loginMsg      *msg.Login
 	configurer    v1.ProxyConfigurer
 
+	workConnFailures workConnFailures
+
 	mu  sync.RWMutex
 	xl  *xlog.Logger
 	ctx context.Context
@@ -114,6 +116,7 @@ func (pxy *BaseProxy) GetConfigurer() v1.ProxyConfigurer {
 func (pxy *BaseProxy) Close() {
 	xl := xlog.FromContextSafe(pxy.ctx)
 	xl.Infof("proxy closing")
+	pxy.workConnFailures.close(xl)
 	for _, l := range pxy.listeners {
 		l.Close()
 	}
@@ -126,7 +129,7 @@ func (pxy *BaseProxy) GetWorkConnFromPool(src, dst net.Addr) (workConn net.Conn,
 	// try all connections from the pool
 	for i := 0; i < pxy.poolCount+1; i++ {
 		if workConn, err = pxy.getWorkConnFn(); err != nil {
-			xl.Warnf("failed to get work connection: %v", err)
+			pxy.workConnFailures.record(xl, err)
 			return
 		}
 		xl.Debugf("get a new work connection: [%s]", workConn.RemoteAddr().String())

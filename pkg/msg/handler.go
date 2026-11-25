@@ -32,6 +32,7 @@ type Dispatcher struct {
 	sendCh         chan Message
 	doneCh         chan struct{}
 	msgHandlers    map[reflect.Type]func(Message)
+	readErr        error
 	defaultHandler func(Message)
 }
 
@@ -65,6 +66,7 @@ func (d *Dispatcher) readLoop() {
 	for {
 		m, err := ReadMsg(d.rw)
 		if err != nil {
+			d.readErr = err
 			close(d.doneCh)
 			return
 		}
@@ -96,4 +98,9 @@ func (d *Dispatcher) RegisterDefaultHandler(handler func(Message)) {
 
 func (d *Dispatcher) Done() chan struct{} {
 	return d.doneCh
+}
+
+// Err returns the read error that stopped the dispatcher. It is only valid once Done is closed.
+func (d *Dispatcher) Err() error {
+	return d.readErr
 }

@@ -316,8 +316,7 @@ func (svr *Service) login() (conn net.Conn, connector Connector, err error) {
 	_ = conn.SetReadDeadline(time.Time{})
 
 	if loginRespMsg.Error != "" {
-		err = fmt.Errorf("%s", loginRespMsg.Error)
-		xl.Errorf("%s", loginRespMsg.Error)
+		err = fmt.Errorf("login rejected by server: %s", loginRespMsg.Error)
 		return
 	}
 

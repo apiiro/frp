@@ -306,13 +306,11 @@ func (ctl *Control) GetWorkConn() (workConn net.Conn, err error) {
 		case workConn, ok = <-ctl.workConnCh:
 			if !ok {
 				err = pkgerr.ErrCtlClosed
-				xl.Warnf("no work connections available, %v", err)
 				return
 			}
 
 		case <-time.After(time.Duration(ctl.serverCfg.UserConnTimeout) * time.Second):
 			err = fmt.Errorf("timeout trying to get work connection")
-			xl.Warnf("%v", err)
 			return
 		}
 	}
