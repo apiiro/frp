@@ -16,7 +16,9 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync/atomic"
 	"time"
@@ -153,7 +155,13 @@ func (ctl *Control) handleReqWorkConn(_ msg.Message) {
 
 	var startMsg msg.StartWorkConn
 	if err = msg.ReadMsgInto(workConn, &startMsg); err != nil {
-		xl.Warnf("work connection: closed before StartWorkConn after %s: %v", sinceRounded(requestedAt), err)
+		// A pooled work connection waits for StartWorkConn until it is used, and the session closing ends it with EOF;
+		// that is routine. Any other error means the work connection broke before frps could use it.
+		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+			xl.Debugf("work connection: closed before StartWorkConn after %s: %v", sinceRounded(requestedAt), err)
+		} else {
+			xl.Warnf("work connection: closed before StartWorkConn after %s: %v", sinceRounded(requestedAt), err)
+		}
 		workConn.Close()
 		return
 	}
