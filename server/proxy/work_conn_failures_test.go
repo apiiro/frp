@@ -34,11 +34,15 @@ func TestWorkConnFailuresLogsOncePerWindow(t *testing.T) {
 	now = now.Add(time.Minute)
 	f.record(xl, timeout)
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	require.Len(t, lines, 3)
-	require.Contains(t, lines[1], "failed to get work connection 99 more times")
-	require.Contains(t, lines[2], "failed to get work connection: timeout trying to get work connection")
+	require.Len(t, lines, 2)
+	require.Contains(t, lines[1], "failed to get work connection: timeout trying to get work connection (and 99 more times")
 
 	f.record(xl, timeout)
-	f.flush(xl)
+	f.close(xl)
 	require.Contains(t, buf.String(), "1 more times")
+
+	buf.Reset()
+	f.record(xl, timeout)
+	require.Contains(t, buf.String(), "[D]")
+	require.Contains(t, buf.String(), "after the proxy closed")
 }

@@ -116,7 +116,7 @@ func (pxy *BaseProxy) GetConfigurer() v1.ProxyConfigurer {
 func (pxy *BaseProxy) Close() {
 	xl := xlog.FromContextSafe(pxy.ctx)
 	xl.Infof("proxy closing")
-	pxy.workConnFailures.flush(xl)
+	pxy.workConnFailures.close(xl)
 	for _, l := range pxy.listeners {
 		l.Close()
 	}
