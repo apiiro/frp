@@ -15,45 +15,36 @@
 package xlog
 
 import (
-	"fmt"
+	stdlog "log"
 	"strings"
 )
 
-// YamuxLogger is a yamux Logger that logs yamux's [ERR] lines as errors and its [WARN] lines as warnings, so a
+// NewYamuxLogger returns a yamux logger that logs yamux's [ERR] lines as errors and its [WARN] lines as warnings, so a
 // failed keepalive or a write timeout on the session shows at the default log level. yamux also reports a session
-// that is closing normally as a failed read or write, and those stay at debug.
-type YamuxLogger struct {
+// that is closing normally as a failed read or write, and those stay at debug. It is a *log.Logger because that is
+// what hashicorp/yamux's Config.Logger takes; frp builds against the fatedier fork, whose Logger interface it also
+// satisfies, but programs that import frp as a module get hashicorp/yamux, since replace directives do not carry over.
+func NewYamuxLogger(xl *Logger) *stdlog.Logger {
+	return stdlog.New(yamuxWriter{xl: xl}, "", 0)
+}
+
+type yamuxWriter struct {
 	xl *Logger
 }
 
-func NewYamuxLogger(xl *Logger) YamuxLogger {
-	return YamuxLogger{xl: xl}
-}
-
-func (l YamuxLogger) Print(v ...any) {
-	l.log(fmt.Sprint(v...))
-}
-
-func (l YamuxLogger) Printf(format string, v ...any) {
-	l.log(fmt.Sprintf(format, v...))
-}
-
-func (l YamuxLogger) Println(v ...any) {
-	l.log(fmt.Sprintln(v...))
-}
-
-func (l YamuxLogger) log(msg string) {
-	msg = strings.TrimSpace(msg)
+func (w yamuxWriter) Write(p []byte) (int, error) {
+	msg := strings.TrimSpace(string(p))
 	switch {
 	case isSessionClosing(msg):
-		l.xl.Debugf("%s", msg)
+		w.xl.Debugf("%s", msg)
 	case strings.HasPrefix(msg, "[ERR]"):
-		l.xl.Errorf("%s", msg)
+		w.xl.Errorf("%s", msg)
 	case strings.HasPrefix(msg, "[WARN]"):
-		l.xl.Warnf("%s", msg)
+		w.xl.Warnf("%s", msg)
 	default:
-		l.xl.Debugf("%s", msg)
+		w.xl.Debugf("%s", msg)
 	}
+	return len(p), nil
 }
 
 func isSessionClosing(msg string) bool {
