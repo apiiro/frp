@@ -16,6 +16,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"time"
@@ -70,6 +71,10 @@ type Control struct {
 	// of time.Time, last time got the Pong message
 	lastPong atomic.Value
 
+	// when the control session started, and why this side closed it, if it did
+	startedAt   time.Time
+	closeReason atomic.Pointer[string]
+
 	// The role of msgTransporter is similar to HTTP2.
 	// It allows multiple messages to be sent simultaneously on the same control connection.
 	// The server's response messages will be dispatched to the corresponding waiting goroutines based on the laneKey and message type.
@@ -88,7 +93,8 @@ func NewControl(ctx context.Context, sessionCtx *SessionContext) (*Control, erro
 		sessionCtx: sessionCtx,
 		doneCh:     make(chan struct{}),
 	}
-	ctl.lastPong.Store(time.Now())
+	ctl.startedAt = time.Now()
+	ctl.lastPong.Store(ctl.startedAt)
 
 	if sessionCtx.ConnEncrypted {
 		cryptoRW, err := netpkg.NewCryptoReadWriter(sessionCtx.Conn, sessionCtx.Auth.EncryptionKey())
@@ -124,9 +130,10 @@ func (ctl *Control) SetInWorkConnCallback(cb func(*v1.ProxyBaseConfig, net.Conn,
 
 func (ctl *Control) handleReqWorkConn(_ msg.Message) {
 	xl := ctl.xl
+	requestedAt := time.Now()
 	workConn, err := ctl.connectServer()
 	if err != nil {
-		xl.Warnf("start new connection to server error: %v", err)
+		xl.Warnf("work connection: open stream to server failed after %s: %v", sinceRounded(requestedAt), err)
 		return
 	}
 
@@ -139,14 +146,14 @@ func (ctl *Control) handleReqWorkConn(_ msg.Message) {
 		return
 	}
 	if err = msg.WriteMsg(workConn, m); err != nil {
-		xl.Warnf("work connection write to server error: %v", err)
+		xl.Warnf("work connection: write NewWorkConn failed after %s: %v", sinceRounded(requestedAt), err)
 		workConn.Close()
 		return
 	}
 
 	var startMsg msg.StartWorkConn
 	if err = msg.ReadMsgInto(workConn, &startMsg); err != nil {
-		xl.Tracef("work connection closed before response StartWorkConn message: %v", err)
+		xl.Warnf("work connection: closed before StartWorkConn after %s: %v", sinceRounded(requestedAt), err)
 		workConn.Close()
 		return
 	}
@@ -190,11 +197,17 @@ func (ctl *Control) handlePong(m msg.Message) {
 
 	if inMsg.Error != "" {
 		xl.Errorf("pong message contains error: %s", inMsg.Error)
-		ctl.closeSession()
+		ctl.closeSessionFor("server rejected heartbeat: " + inMsg.Error)
 		return
 	}
 	ctl.lastPong.Store(time.Now())
 	xl.Debugf("receive heartbeat from server")
+}
+
+// closeSessionFor records why this side is closing the control session, then closes it. The first reason wins.
+func (ctl *Control) closeSessionFor(reason string) {
+	ctl.closeReason.CompareAndSwap(nil, &reason)
+	ctl.closeSession()
 }
 
 // closeSession closes the control connection.
@@ -213,7 +226,7 @@ func (ctl *Control) GracefulClose(d time.Duration) error {
 
 	time.Sleep(d)
 
-	ctl.closeSession()
+	ctl.closeSessionFor(gracefulCloseReason)
 	return nil
 }
 
@@ -266,9 +279,10 @@ func (ctl *Control) heartbeatWorker() {
 	// Check heartbeat timeout.
 	if ctl.sessionCtx.Common.Transport.HeartbeatInterval > 0 && ctl.sessionCtx.Common.Transport.HeartbeatTimeout > 0 {
 		go wait.Until(func() {
-			if time.Since(ctl.lastPong.Load().(time.Time)) > time.Duration(ctl.sessionCtx.Common.Transport.HeartbeatTimeout)*time.Second {
-				xl.Warnf("heartbeat timeout")
-				ctl.closeSession()
+			timeout := time.Duration(ctl.sessionCtx.Common.Transport.HeartbeatTimeout) * time.Second
+			if sincePong := time.Since(ctl.lastPong.Load().(time.Time)); sincePong > timeout {
+				xl.Warnf("heartbeat timeout: no pong for %s (timeout %s)", sincePong.Round(time.Second), timeout)
+				ctl.closeSessionFor(fmt.Sprintf("heartbeat timeout, no pong for %s", sincePong.Round(time.Second)))
 				return
 			}
 		}, time.Second, ctl.doneCh)
@@ -276,12 +290,11 @@ func (ctl *Control) heartbeatWorker() {
 }
 
 func (ctl *Control) worker() {
-	xl := ctl.xl
 	go ctl.heartbeatWorker()
 	go ctl.msgDispatcher.Run()
 
 	<-ctl.msgDispatcher.Done()
-	xl.Debugf("control message dispatcher exited")
+	ctl.logSessionClosed()
 	ctl.closeSession()
 
 	ctl.pm.Close()
@@ -293,4 +306,29 @@ func (ctl *Control) UpdateAllConfigurer(proxyCfgs []v1.ProxyConfigurer, visitorC
 	ctl.vm.UpdateAll(visitorCfgs)
 	ctl.pm.UpdateAll(proxyCfgs)
 	return nil
+}
+
+const gracefulCloseReason = "client closing"
+
+// logSessionClosed logs why the control session ended and how long it lasted. A session this side closed reports
+// that reason; otherwise the read error from the control connection says how the server or the network ended it.
+func (ctl *Control) logSessionClosed() {
+	uptime := sinceRounded(ctl.startedAt)
+	if reason := ctl.closeReason.Load(); reason != nil {
+		if *reason == gracefulCloseReason {
+			ctl.xl.Infof("control session closed after %s: %s", uptime, *reason)
+			return
+		}
+		ctl.xl.Warnf("control session closed after %s: %s; reconnecting", uptime, *reason)
+		return
+	}
+	ctl.xl.Warnf("control session closed after %s: read from server failed: %v; reconnecting", uptime, ctl.msgDispatcher.Err())
+}
+
+func sinceRounded(t time.Time) time.Duration {
+	d := time.Since(t)
+	if d < time.Second {
+		return d.Round(time.Millisecond)
+	}
+	return d.Round(time.Second)
 }

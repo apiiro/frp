@@ -548,8 +548,8 @@ func (svr *Service) HandleListener(l net.Listener, internal bool) {
 			if lo.FromPtr(svr.cfg.Transport.TCPMux) && !internal {
 				fmuxCfg := fmux.DefaultConfig()
 				fmuxCfg.KeepAliveInterval = time.Duration(svr.cfg.Transport.TCPMuxKeepaliveInterval) * time.Second
-				// Use trace level for yamux logs
-				fmuxCfg.LogOutput = xlog.NewTraceWriter(xlog.FromContextSafe(ctx))
+				fmuxCfg.LogOutput = nil
+				fmuxCfg.Logger = xlog.NewYamuxLogger(xlog.FromContextSafe(ctx))
 				fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
 				session, err := fmux.Server(frpConn, fmuxCfg)
 				if err != nil {

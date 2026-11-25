@@ -116,8 +116,8 @@ func (c *defaultConnectorImpl) Open() error {
 
 	fmuxCfg := fmux.DefaultConfig()
 	fmuxCfg.KeepAliveInterval = time.Duration(c.cfg.Transport.TCPMuxKeepaliveInterval) * time.Second
-	// Use trace level for yamux logs
-	fmuxCfg.LogOutput = xlog.NewTraceWriter(xl)
+	fmuxCfg.LogOutput = nil
+	fmuxCfg.Logger = xlog.NewYamuxLogger(xl)
 	fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
 	session, err := fmux.Client(conn, fmuxCfg)
 	if err != nil {
