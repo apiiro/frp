@@ -35,7 +35,9 @@ func TestYamuxSessionLoggerRecordsTheFirstError(t *testing.T) {
 
 	logger.Printf("[WARN] yamux: frame for missing stream: Vsn:0 Type:1")
 	logger.Printf("[ERR] yamux: Failed to read header: EOF")
-	require.Empty(t, sessionErr.Get(), "a warning or a normal close is not a cause")
+	logger.Printf("[ERR] yamux: SYN tracking out of sync")
+	logger.Printf("[ERR] yamux: established stream without inflight SYN (no tracking entry)")
+	require.Empty(t, sessionErr.Get(), "a warning, a normal close or an error the session survives is not a cause")
 
 	logger.Printf("[ERR] yamux: keepalive failed: i/o deadline reached")
 	logger.Printf("[ERR] yamux: Failed to write header: i/o timeout")
