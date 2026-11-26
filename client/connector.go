@@ -48,6 +48,7 @@ type defaultConnectorImpl struct {
 	cfg *v1.ClientCommonConfig
 
 	muxSession *fmux.Session
+	muxErr     xlog.YamuxSessionError
 	quicConn   *quic.Conn
 	closeOnce  sync.Once
 }
@@ -117,7 +118,7 @@ func (c *defaultConnectorImpl) Open() error {
 	fmuxCfg := fmux.DefaultConfig()
 	fmuxCfg.KeepAliveInterval = time.Duration(c.cfg.Transport.TCPMuxKeepaliveInterval) * time.Second
 	fmuxCfg.LogOutput = nil
-	fmuxCfg.Logger = xlog.NewYamuxLogger(xl)
+	fmuxCfg.Logger = xlog.NewYamuxSessionLogger(xl, &c.muxErr)
 	fmuxCfg.MaxStreamWindowSize = 6 * 1024 * 1024
 	session, err := fmux.Client(conn, fmuxCfg)
 	if err != nil {
@@ -125,6 +126,11 @@ func (c *defaultConnectorImpl) Open() error {
 	}
 	c.muxSession = session
 	return nil
+}
+
+// SessionError is the first error yamux logged for the multiplexed session, or "" when there is none.
+func (c *defaultConnectorImpl) SessionError() string {
+	return c.muxErr.Get()
 }
 
 // Connect returns a stream from the underlying connection, or a new TCP connection if TCPMux isn't enabled.
