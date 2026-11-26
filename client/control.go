@@ -319,7 +319,8 @@ func (ctl *Control) UpdateAllConfigurer(proxyCfgs []v1.ProxyConfigurer, visitorC
 const gracefulCloseReason = "client closing"
 
 // logSessionClosed logs why the control session ended and how long it lasted. A session this side closed reports
-// that reason; otherwise the read error from the control connection says how the server or the network ended it.
+// that reason; otherwise the error yamux closed the session on, or the read error from the control connection, says how
+// the server or the network ended it.
 func (ctl *Control) logSessionClosed() {
 	uptime := sinceRounded(ctl.startedAt)
 	if reason := ctl.closeReason.Load(); reason != nil {
@@ -330,7 +331,19 @@ func (ctl *Control) logSessionClosed() {
 		ctl.xl.Warnf("control session closed after %s: %s; reconnecting", uptime, *reason)
 		return
 	}
+	if cause := ctl.sessionError(); cause != "" {
+		ctl.xl.Warnf("control session closed after %s: %s; reconnecting", uptime, cause)
+		return
+	}
 	ctl.xl.Warnf("control session closed after %s: read from server failed: %v; reconnecting", uptime, ctl.msgDispatcher.Err())
+}
+
+// sessionError is the error that made yamux close the multiplexed session, which the control read only sees as EOF.
+func (ctl *Control) sessionError() string {
+	if c, ok := ctl.sessionCtx.Connector.(interface{ SessionError() string }); ok {
+		return c.SessionError()
+	}
+	return ""
 }
 
 func sinceRounded(t time.Time) time.Duration {
